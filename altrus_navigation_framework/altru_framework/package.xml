@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>altru_framework</name>
+  <version>1.0.0</version>
+  <description>ALTRUS Framework - Developer toolkit for assistive robots</description>
+  <maintainer email="dev@altrus.ai">ALTRUS Team</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-click</exec_depend>
+  <exec_depend>python3-jinja2</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
