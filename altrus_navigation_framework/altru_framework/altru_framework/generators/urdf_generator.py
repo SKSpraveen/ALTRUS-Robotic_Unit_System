@@ -412,4 +412,50 @@ class URDFGenerator:
 </robot>
 '''
 
-    
+    def __init__(self, template_str: str = None):
+        self.template = Template(template_str if template_str else self.URDF_TEMPLATE)
+
+    def generate(self, config: RobotConfig) -> str:
+        context = config.to_dict()
+        return self.template.render(**context)
+
+    def generate_to_file(self, config: RobotConfig, output_path: Path):
+        urdf_content = self.generate(config)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w') as f:
+            f.write(urdf_content)
+
+    @staticmethod
+    def generate_launch_file(robot_name: str) -> str:
+        launch_template = '''# {{ robot_name }}_description/launch/robot_state_publisher.launch.py
+from launch import LaunchDescription
+from launch.substitutions import LaunchConfiguration, Command
+from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.actions import Node
+from ament_index_python.packages import get_package_share_directory
+import os
+
+def generate_launch_description():
+    use_sim_time = LaunchConfiguration('use_sim_time', default='true')
+    robot_description_xacro = os.path.join(
+        get_package_share_directory('{{ robot_name }}_description'),
+        'urdf',
+        '{{ robot_name }}.urdf.xacro'
+    )
+    robot_description = Command(['xacro', ' ', robot_description_xacro])
+    robot_description_param = ParameterValue(robot_description, value_type=str)
+
+    robot_state_publisher = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        name='robot_state_publisher',
+        output='screen',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'robot_description': robot_description_param
+        }]
+    )
+    return LaunchDescription([robot_state_publisher])
+'''
+        return Template(launch_template).render(robot_name=robot_name)
+
