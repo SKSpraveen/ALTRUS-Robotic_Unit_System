@@ -1,0 +1,25 @@
+intents:
+  NAVIGATE:
+    priority: 3
+    timeout: 30
+    ttl: 20
+    preemptible: true
+    route:
+      capability: navigation.move
+      fallback: safe_stop
+
+  EMERGENCY_STOP:
+    priority: 4
+    timeout: 5
+    ttl: 5
+    preemptible: false
+    route:
+      capability: emergency_control
+
+  TELEMEDICINE_CALL:
+    priority: 3
+    timeout: 60
+    ttl: 5
+    preemptible: true
+    route:
+      capability: telemedicine.call
