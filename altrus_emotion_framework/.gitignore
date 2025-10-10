@@ -1,0 +1,7 @@
+datasets/
+audio_dataset/
+
+venv/
+
+__pycache__/
+*.pyc
