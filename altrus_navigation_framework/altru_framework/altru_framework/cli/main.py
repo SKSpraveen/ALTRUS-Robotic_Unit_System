@@ -177,4 +177,32 @@ def configure(robot_name, gui):
     click.echo("\n✅ Configuration saved")
 
 
+@cli.command()
+@click.argument("robot_name")
+@click.option("--location-name", help="Location name (e.g., kitchen)")
+@click.option("--x", type=float, help="X coordinate")
+@click.option("--y", type=float, help="Y coordinate")
+@click.option("--yaw", default=0.0, type=float, help="Orientation (radians)")
+@click.option("--interactive", is_flag=True, help="Interactive mode")
+def add_location(robot_name, location_name, x, y, yaw, interactive):
+    """Add a named location for voice navigation"""
+    manager = ConfigManager()
+    config = manager.load_config(robot_name)
+
+    if not config:
+        click.echo(f"❌ Robot '{robot_name}' not found")
+        return
+
+    if interactive or not all([location_name, x is not None, y is not None]):
+        location_name = click.prompt("Location name")
+        x = click.prompt("X coordinate", type=float)
+        y = click.prompt("Y coordinate", type=float)
+        yaw = click.prompt("Yaw (radians)", default=0.0, type=float)
+
+    config.config["multimodal"]["locations"][location_name] = {"x": x, "y": y, "yaw": yaw}
+
+    manager.save_config(config)
+    click.echo(f"✅ Added location: {location_name} at ({x}, {y}, {yaw})")
+
+
 
