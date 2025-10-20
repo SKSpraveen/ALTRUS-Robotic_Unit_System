@@ -205,4 +205,28 @@ def add_location(robot_name, location_name, x, y, yaw, interactive):
     click.echo(f"✅ Added location: {location_name} at ({x}, {y}, {yaw})")
 
 
+@cli.command()
+@click.argument("robot_name")
+@click.option("--sensor", type=click.Choice(["camera", "imu", "depth_camera"]))
+@click.option("--model", help="Sensor model/driver")
+def add_sensor(robot_name, sensor, model):
+    """Add a sensor to the robot configuration"""
+    manager = ConfigManager()
+    config = manager.load_config(robot_name)
+
+    if not config:
+        click.echo(f"❌ Robot '{robot_name}' not found")
+        return
+
+    if not sensor:
+        sensor = click.prompt("Sensor type", type=click.Choice(["camera", "imu", "depth_camera"]))
+
+    config.config["sensors"][sensor]["enabled"] = True
+    if model:
+        config.config["sensors"][sensor]["model"] = model
+
+    manager.save_config(config)
+    click.echo(f"✅ Added sensor: {sensor}" + (f" ({model})" if model else ""))
+
+
 
