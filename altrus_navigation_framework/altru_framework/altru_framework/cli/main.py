@@ -308,3 +308,41 @@ def build(robot_name, output_dir, skip_validation):
     click.echo(f"  altrus-cli launch {robot_name}")
 
 
+@cli.command()
+@click.argument("robot_name")
+@click.option("--mode", type=click.Choice(["simulation", "real"]), default="simulation")
+@click.option("--slam", is_flag=True, help="Launch with SLAM")
+def launch(robot_name, mode, slam):
+    """Launch the robot"""
+    manager = ConfigManager()
+    config = manager.load_config(robot_name)
+
+    if not config:
+        click.echo(f"❌ Robot '{robot_name}' not found")
+        return
+
+    pkg_name = config.get_package_names()["bringup"]
+
+    if mode == "simulation":
+        launch_file = "simulation_slam.launch.py" if slam else "simulation.launch.py"
+    else:
+        launch_file = "real_robot.launch.py"
+
+    cmd = ["ros2", "launch", pkg_name, launch_file]
+
+    click.echo(f"🚀 Launching: {robot_name} ({'SLAM' if slam else 'Navigation'} mode)")
+    click.echo(f"📦 Package: {pkg_name}")
+    click.echo(f"🎯 Launch file: {launch_file}")
+    click.echo()
+    click.echo(f"Running: {' '.join(cmd)}")
+    click.echo()
+
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError:
+        click.echo("\n❌ Launch failed. Make sure you've built the packages:")
+        click.echo("  cd ~/altrus_ws && colcon build")
+    except FileNotFoundError:
+        click.echo("\n❌ ROS2 not found. Make sure ROS2 is installed and sourced.")
+
+
