@@ -229,4 +229,82 @@ def add_sensor(robot_name, sensor, model):
     click.echo(f"✅ Added sensor: {sensor}" + (f" ({model})" if model else ""))
 
 
+@cli.command()
+@click.argument("robot_name")
+@click.option("--output-dir", type=click.Path(), help="Output directory")
+@click.option("--skip-validation", is_flag=True, help="Skip config validation")
+def build(robot_name, output_dir, skip_validation):
+    """Generate ROS2 packages from robot configuration"""
+    manager = ConfigManager()
+    config = manager.load_config(robot_name)
+
+    if not config:
+        click.echo(f"❌ Robot '{robot_name}' not found")
+        return
+
+    # Validate
+    if not skip_validation:
+        is_valid, errors = config.validate()
+        if not is_valid:
+            click.echo("❌ Configuration errors:")
+            for error in errors:
+                click.echo(f"  - {error}")
+            if not click.confirm("Build anyway?", default=False):
+                return
+
+    # Determine output directory
+    if not output_dir:
+        output_dir = Path.home() / "altrus_ws" / "src"
+    else:
+        output_dir = Path(output_dir).expanduser()
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    click.echo(f"🔨 Building packages for: {robot_name}")
+    click.echo(f"📦 Output directory: {output_dir}")
+    click.echo()
+
+    pkg_names = config.get_package_names()
+
+    # Generate description package
+    desc_pkg = output_dir / pkg_names["description"]
+    click.echo(f"📦 Generating {pkg_names['description']}...")
+    _generate_description_package(config, desc_pkg)
+
+    # Generate navigation package
+    nav_pkg = output_dir / pkg_names["navigation"]
+    click.echo(f"📦 Generating {pkg_names['navigation']}...")
+    _generate_navigation_package(config, nav_pkg)
+
+    # Generate gazebo package
+    gz_pkg = output_dir / pkg_names["gazebo"]
+    click.echo(f"📦 Generating {pkg_names['gazebo']}...")
+    _generate_gazebo_package(config, gz_pkg)
+
+    # Generate bringup package
+    bringup_pkg = output_dir / pkg_names["bringup"]
+    click.echo(f"📦 Generating {pkg_names['bringup']}...")
+    _generate_bringup_package(config, bringup_pkg)
+
+    # Voice package (if enabled)
+    if config.get("multimodal.voice.enabled"):
+        voice_pkg = output_dir / pkg_names["voice"]
+        click.echo(f"📦 Generating {pkg_names['voice']}...")
+        _generate_voice_package(config, voice_pkg)
+
+    # Gesture package (if enabled)
+    if config.get("multimodal.gesture.enabled"):
+        gesture_pkg = output_dir / pkg_names["gesture"]
+        click.echo(f"📦 Generating {pkg_names['gesture']}...")
+        _generate_gesture_package(config, gesture_pkg)
+
+    click.echo()
+    click.echo("✅ Build complete!")
+    click.echo()
+    click.echo("📝 Next steps:")
+    click.echo(f"  cd {output_dir.parent}")
+    click.echo("  colcon build")
+    click.echo("  source install/setup.bash")
+    click.echo(f"  altrus-cli launch {robot_name}")
+
 
