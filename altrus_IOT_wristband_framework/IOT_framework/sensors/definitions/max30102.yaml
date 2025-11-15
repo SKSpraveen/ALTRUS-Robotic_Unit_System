@@ -1,0 +1,9 @@
+key: max30102
+display_name: MAX30102 PPG
+bus: i2c
+default_pins:
+  sda: 21
+  scl: 22
+  int: 4
+description: Optical PPG sensor
+category: Heart Rate

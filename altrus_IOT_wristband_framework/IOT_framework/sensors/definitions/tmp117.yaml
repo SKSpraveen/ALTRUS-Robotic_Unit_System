@@ -1,0 +1,9 @@
+key: tmp117
+display_name: TMP117 Temperature
+bus: i2c
+default_pins:
+  sda: 21
+  scl: 22
+description: Temperature sensor
+category: Temperature
+default_sample_rate_hz: 10

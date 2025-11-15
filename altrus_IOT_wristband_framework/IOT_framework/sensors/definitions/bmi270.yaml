@@ -1,0 +1,10 @@
+key: bmi270
+display_name: BMI270 IMU
+bus: spi
+default_pins:
+  sclk: 18
+  mosi: 23
+  miso: 19
+  cs: 5
+description: 6-axis IMU sensor
+category: Motion
