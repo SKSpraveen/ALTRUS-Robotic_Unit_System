@@ -375,4 +375,538 @@ def list():
             click.echo(f"   Sensors: {', '.join(sensors)}")
 
 
+@cli.command()
+@click.argument("robot_name")
+def info(robot_name):
+    """Show detailed robot configuration"""
+    manager = ConfigManager()
+    config = manager.load_config(robot_name)
+
+    if not config:
+        click.echo(f"❌ Robot '{robot_name}' not found")
+        return
+
+    click.echo(f"\n🤖 Robot Information: {robot_name}")
+    click.echo("=" * 60)
+    click.echo(yaml.dump(config.to_dict(), default_flow_style=False))
+
+
+@cli.command()
+@click.argument("robot_name")
+@click.option("--format", "fmt", type=click.Choice(["yaml", "json"]), default="yaml")
+@click.option("--output", type=click.Path(), help="Output file")
+def export(robot_name, fmt, output):
+    """Export robot configuration"""
+    manager = ConfigManager()
+
+    if not output:
+        output = f"{robot_name}_config.{fmt}"
+
+    output_path = Path(output)
+
+    try:
+        manager.export_config(robot_name, output_path, fmt)
+        click.echo(f"✅ Exported to: {output_path}")
+    except ValueError as e:
+        click.echo(f"❌ {e}")
+
+
+@cli.command()
+@click.argument("config_file", type=click.Path(exists=True))
+def import_config(config_file):
+    """Import robot configuration from file"""
+    manager = ConfigManager()
+    config_path = Path(config_file)
+
+    try:
+        config = manager.import_config(config_path)
+        click.echo(f"✅ Imported: {config.config['robot_name']}")
+    except Exception as e:
+        click.echo(f"❌ Import failed: {e}")
+
+
+@cli.command()
+@click.argument("robot_name")
+@click.option("--force", is_flag=True, help="Skip confirmation")
+def delete(robot_name, force):
+    """Delete robot configuration"""
+    manager = ConfigManager()
+
+    if not force:
+        if not click.confirm(f"Delete robot '{robot_name}'?", default=False):
+            return
+
+    if manager.delete_config(robot_name):
+        click.echo(f"✅ Deleted: {robot_name}")
+    else:
+        click.echo(f"❌ Robot '{robot_name}' not found")
+
+
+# =========================
+# Helper functions for package generation
+# =========================
+
+def _generate_voice_package(config: RobotConfig, pkg_dir: Path):
+    """Generate voice control package (real ROS2 params)"""
+    pkg_dir.mkdir(parents=True, exist_ok=True)
+    (pkg_dir / "launch").mkdir(exist_ok=True)
+    (pkg_dir / "config").mkdir(exist_ok=True)
+
+    robot_name = config.config["robot_name"]
+
+    # ✅ safety: avoid KeyError if config missing sections
+    mm = config.config.get("multimodal", {})
+    voice_cfg = mm.get("voice", {})
+    gesture_cfg = mm.get("gesture", {})
+
+    voice_topic = voice_cfg.get("topic", "/voice/command")
+    gesture_topic = gesture_cfg.get("topic", "/gesture/command")
+
+    # ✅ ROS2 PARAM FILE FORMAT (node_name -> ros__parameters)
+    voice_params = {
+        "altrus_voice_intent": {
+            "ros__parameters": {
+                "use_sim_time": True,
+                "engine": str(voice_cfg.get("engine", "simulated")),
+                "language": str(voice_cfg.get("language", "en-US")),
+                "confidence_threshold": float(voice_cfg.get("confidence_threshold", 0.7)),
+                "out_topic": str(voice_topic),
+                # optional (vosk)
+                "vosk_model_path": str(voice_cfg.get("vosk_model_path", "")),
+                "device": voice_cfg.get("device", -1),
+                "sample_rate": int(voice_cfg.get("sample_rate", 16000)),
+            }
+        },
+        "altrus_motion_executor": {
+            "ros__parameters": {
+                "use_sim_time": True,
+                "voice_topic": str(voice_topic),
+                "gesture_topic": str(gesture_topic),
+                "cmd_vel_topic": "/cmd_vel",
+                "linear_speed": float(config.get("navigation.max_linear_velocity", 0.3)),
+                "angular_speed": float(config.get("navigation.max_angular_velocity", 1.0)),
+                # ✅ change these to increase distance
+                "come_distance": float(voice_cfg.get("come_distance", 0.60)),
+                "go_forward_distance": float(voice_cfg.get("go_forward_distance", 0.40)),
+                "turn_back_angle": float(voice_cfg.get("turn_back_angle", 3.14159)),
+                "control_rate": float(voice_cfg.get("control_rate", 20.0)),
+            }
+        },
+    }
+
+    with open(pkg_dir / "config" / "voice.yaml", "w") as f:
+        yaml.dump(voice_params, f, default_flow_style=False, sort_keys=False)
+
+    voice_launch = f"""#!/usr/bin/env python3
+from launch import LaunchDescription
+from launch_ros.actions import Node
+from ament_index_python.packages import get_package_share_directory
+import os
+
+def generate_launch_description():
+    pkg_share = get_package_share_directory('{robot_name}_voice')
+    cfg = os.path.join(pkg_share, 'config', 'voice.yaml')
+
+    voice_node = Node(
+        package='altru_framework',
+        executable='altrus-voice-intent',
+        name='altrus_voice_intent',
+        output='screen',
+        parameters=[cfg]
+    )
+
+    motion_node = Node(
+        package='altru_framework',
+        executable='altrus-motion-executor',
+        name='altrus_motion_executor',
+        output='screen',
+        parameters=[cfg]
+    )
+
+    return LaunchDescription([voice_node, motion_node])
+"""
+    with open(pkg_dir / "launch" / "voice.launch.py", "w") as f:
+        f.write(voice_launch)
+
+    _create_package_xml(
+        pkg_dir,
+        f"{robot_name}_voice",
+        extra_exec_deps=[
+            "launch",
+            "launch_ros",
+            "rclpy",
+            "std_msgs",
+            "geometry_msgs",
+            "altru_framework",
+        ],
+    )
+    _create_cmakelists(pkg_dir, f"{robot_name}_voice")
+
+
+def _generate_gesture_package(config: RobotConfig, pkg_dir: Path):
+    """Generate gesture control package (real ROS2 params)"""
+    pkg_dir.mkdir(parents=True, exist_ok=True)
+    (pkg_dir / "launch").mkdir(exist_ok=True)
+    (pkg_dir / "config").mkdir(exist_ok=True)
+
+    robot_name = config.config["robot_name"]
+
+    # ✅ safety: avoid KeyError if config missing sections
+    mm = config.config.get("multimodal", {})
+    voice_cfg = mm.get("voice", {})
+    gesture_cfg = mm.get("gesture", {})
+
+    voice_topic = voice_cfg.get("topic", "/voice/command")
+    gesture_topic = gesture_cfg.get("topic", "/gesture/command")
+
+    # ✅ ROS2 PARAM FILE FORMAT (node_name -> ros__parameters)
+    gesture_params = {
+        "altrus_gesture_intent": {
+            "ros__parameters": {
+                "use_sim_time": True,
+                "out_topic": str(gesture_topic),
+                # If you later support gazebo image topic:
+                "camera_source": str(gesture_cfg.get("camera_source", "/camera/image_raw")),
+                # for webcam mode
+                "source": str(gesture_cfg.get("source", "webcam")),
+                "device_index": int(gesture_cfg.get("device_index", 0)),
+                "cooldown_sec": float(gesture_cfg.get("cooldown_sec", 1.2)),
+                "show_debug": bool(gesture_cfg.get("show_debug", True)),
+            }
+        },
+        "altrus_motion_executor": {
+            "ros__parameters": {
+                "use_sim_time": True,
+                "voice_topic": str(voice_topic),
+                "gesture_topic": str(gesture_topic),
+                "cmd_vel_topic": "/cmd_vel",
+                "linear_speed": float(config.get("navigation.max_linear_velocity", 0.3)),
+                "angular_speed": float(config.get("navigation.max_angular_velocity", 1.0)),
+                # ✅ change these to increase distance (gesture side can also override)
+                "come_distance": float(gesture_cfg.get("come_distance", 0.60)),
+                "go_forward_distance": float(gesture_cfg.get("go_forward_distance", 0.40)),
+                "turn_back_angle": float(gesture_cfg.get("turn_back_angle", 3.14159)),
+                "control_rate": float(gesture_cfg.get("control_rate", 20.0)),
+            }
+        },
+    }
+
+    with open(pkg_dir / "config" / "gesture.yaml", "w") as f:
+        yaml.dump(gesture_params, f, default_flow_style=False, sort_keys=False)
+
+    gesture_launch = f"""#!/usr/bin/env python3
+from launch import LaunchDescription
+from launch_ros.actions import Node
+from ament_index_python.packages import get_package_share_directory
+import os
+
+def generate_launch_description():
+    pkg_share = get_package_share_directory('{robot_name}_gesture')
+    cfg = os.path.join(pkg_share, 'config', 'gesture.yaml')
+
+    gesture_node = Node(
+        package='altru_framework',
+        executable='altrus-gesture-intent',
+        name='altrus_gesture_intent',
+        output='screen',
+        parameters=[cfg]
+    )
+
+    motion_node = Node(
+        package='altru_framework',
+        executable='altrus-motion-executor',
+        name='altrus_motion_executor',
+        output='screen',
+        parameters=[cfg]
+    )
+
+    return LaunchDescription([gesture_node, motion_node])
+"""
+    with open(pkg_dir / "launch" / "gesture.launch.py", "w") as f:
+        f.write(gesture_launch)
+
+    _create_package_xml(
+        pkg_dir,
+        f"{robot_name}_gesture",
+        extra_exec_deps=[
+            "launch",
+            "launch_ros",
+            "rclpy",
+            "std_msgs",
+            "geometry_msgs",
+            "altru_framework",
+        ],
+    )
+    _create_cmakelists(pkg_dir, f"{robot_name}_gesture")
+
+
+def _generate_description_package(config: RobotConfig, pkg_dir: Path):
+    """Generate description package"""
+    pkg_dir.mkdir(parents=True, exist_ok=True)
+    (pkg_dir / "urdf").mkdir(exist_ok=True)
+    (pkg_dir / "launch").mkdir(exist_ok=True)
+
+    urdf_gen = URDFGenerator()
+    urdf_path = pkg_dir / "urdf" / f"{config.config['robot_name']}.urdf.xacro"
+    urdf_gen.generate_to_file(config, urdf_path)
+
+    launch_content = URDFGenerator.generate_launch_file(config.config["robot_name"])
+    launch_path = pkg_dir / "launch" / "robot_state_publisher.launch.py"
+    with open(launch_path, "w") as f:
+        f.write(launch_content)
+
+    _create_package_xml(pkg_dir, config.config["robot_name"] + "_description")
+    _create_cmakelists(pkg_dir, config.config["robot_name"] + "_description")
+
+
+def _generate_navigation_package(config: RobotConfig, pkg_dir: Path):
+    """Generate navigation package"""
+    pkg_dir.mkdir(parents=True, exist_ok=True)
+    (pkg_dir / "config").mkdir(exist_ok=True)
+    (pkg_dir / "launch").mkdir(exist_ok=True)
+    (pkg_dir / "maps").mkdir(exist_ok=True)
+
+    nav_gen = NavigationGenerator()
+
+    nav2_params = nav_gen.generate_nav2_params(config, slam_mode=False)
+    with open(pkg_dir / "config" / "nav2_params.yaml", "w") as f:
+        f.write(nav2_params)
+
+    nav2_slam_params = nav_gen.generate_nav2_params(config, slam_mode=True)
+    with open(pkg_dir / "config" / "nav2_params_slam.yaml", "w") as f:
+        f.write(nav2_slam_params)
+
+    slam_config = nav_gen.generate_slam_config(config)
+    with open(pkg_dir / "config" / "slam_toolbox.yaml", "w") as f:
+        f.write(slam_config)
+
+    nav_launch = nav_gen.generate_launch_file(config.config["robot_name"], slam_mode=False)
+    with open(pkg_dir / "launch" / "nav2_bringup.launch.py", "w") as f:
+        f.write(nav_launch)
+
+    slam_launch = nav_gen.generate_launch_file(config.config["robot_name"], slam_mode=True)
+    with open(pkg_dir / "launch" / "slam.launch.py", "w") as f:
+        f.write(slam_launch)
+
+    # ✅ IMPORTANT: add SMAC dependency so "smac_2d" works
+    _create_package_xml(
+        pkg_dir,
+        config.config["robot_name"] + "_navigation",
+        extra_exec_deps=[
+            "launch",
+            "launch_ros",
+            "nav2_bringup",
+            "nav2_map_server",
+            "nav2_amcl",
+            "nav2_planner",
+            "nav2_controller",
+            "nav2_bt_navigator",
+            "nav2_behaviors",
+            "nav2_waypoint_follower",
+            "nav2_lifecycle_manager",
+            "nav2_navfn_planner",
+            "nav2_smac_planner",
+            "slam_toolbox",
+            "tf2_ros",
+            "geometry_msgs",
+            "nav_msgs",
+            "sensor_msgs",
+        ],
+    )
+    _create_cmakelists(pkg_dir, config.config["robot_name"] + "_navigation")
+
+
+def _generate_gazebo_package(config: RobotConfig, pkg_dir: Path):
+    """Generate gazebo package"""
+    pkg_dir.mkdir(parents=True, exist_ok=True)
+    (pkg_dir / "worlds").mkdir(exist_ok=True)
+    (pkg_dir / "launch").mkdir(exist_ok=True)
+
+    placeholder_world = """<?xml version="1.0" ?>
+<sdf version="1.6">
+  <world name="default">
+    <include>
+      <uri>model://sun</uri>
+    </include>
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+  </world>
+</sdf>
+"""
+    with open(pkg_dir / "worlds" / "empty.world", "w") as f:
+        f.write(placeholder_world)
+
+    _create_package_xml(pkg_dir, config.config["robot_name"] + "_gazebo")
+    _create_cmakelists(pkg_dir, config.config["robot_name"] + "_gazebo")
+
+
+def _generate_bringup_package(config: RobotConfig, pkg_dir: Path):
+    """Generate bringup package with simulation launch files"""
+    pkg_dir.mkdir(parents=True, exist_ok=True)
+    (pkg_dir / "launch").mkdir(exist_ok=True)
+
+    robot_name = config.config["robot_name"]
+
+    simulation_launch = f"""#!/usr/bin/env python3
+from launch import LaunchDescription
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+from ament_index_python.packages import get_package_share_directory
+import os
+
+def generate_launch_description():
+    use_sim_time = LaunchConfiguration('use_sim_time', default='true')
+
+    gazebo_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            os.path.join(get_package_share_directory('gazebo_ros'),
+                        'launch', 'gazebo.launch.py')
+        ])
+    )
+
+    description_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            os.path.join(get_package_share_directory('{robot_name}_description'),
+                        'launch', 'robot_state_publisher.launch.py')
+        ])
+    )
+
+    spawn_entity = Node(
+        package='gazebo_ros',
+        executable='spawn_entity.py',
+        arguments=[
+            '-topic', 'robot_description',
+            '-entity', '{robot_name}',
+            '-x', '0.0',
+            '-y', '0.0',
+            '-z', '0.01'
+        ],
+        output='screen'
+    )
+
+    return LaunchDescription([
+        gazebo_launch,
+        description_launch,
+        spawn_entity
+    ])
+"""
+    with open(pkg_dir / "launch" / "simulation.launch.py", "w") as f:
+        f.write(simulation_launch)
+
+    slam_simulation_launch = f"""#!/usr/bin/env python3
+from launch import LaunchDescription
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from ament_index_python.packages import get_package_share_directory
+import os
+
+def generate_launch_description():
+    simulation_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            os.path.join(get_package_share_directory('{robot_name}_bringup'),
+                        'launch', 'simulation.launch.py')
+        ])
+    )
+
+    slam_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            os.path.join(get_package_share_directory('{robot_name}_navigation'),
+                        'launch', 'slam.launch.py')
+        ])
+    )
+
+    return LaunchDescription([
+        simulation_launch,
+        slam_launch
+    ])
+"""
+    with open(pkg_dir / "launch" / "simulation_slam.launch.py", "w") as f:
+        f.write(slam_simulation_launch)
+
+    _create_package_xml(pkg_dir, config.config["robot_name"] + "_bringup")
+    _create_cmakelists(pkg_dir, config.config["robot_name"] + "_bringup")
+
+
+def _create_package_xml(pkg_dir: Path, package_name: str, extra_exec_deps=None):
+    """Create basic package.xml with optional exec_deps"""
+    extra_exec_deps = extra_exec_deps or []
+    exec_dep_lines = "\n".join([f"  <exec_depend>{d}</exec_depend>" for d in extra_exec_deps])
+
+    package_xml = f"""<?xml version="1.0"?>
+<package format="3">
+  <name>{package_name}</name>
+  <version>1.0.0</version>
+  <description>{package_name} - Generated by ALTRUS Framework</description>
+  <maintainer email="dev@altrus.ai">ALTRUS Developer</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+{exec_dep_lines}
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
+"""
+    with open(pkg_dir / "package.xml", "w") as f:
+        f.write(package_xml)
+
+
+def _create_cmakelists(pkg_dir: Path, package_name: str):
+    """Create basic CMakeLists.txt"""
+    cmakelists = f"""cmake_minimum_required(VERSION 3.8)
+project({package_name})
+
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+find_package(ament_cmake REQUIRED)
+
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
+endif()
+
+install(DIRECTORY
+  launch
+  DESTINATION share/${{PROJECT_NAME}}/
+  OPTIONAL
+)
+
+install(DIRECTORY
+  config
+  DESTINATION share/${{PROJECT_NAME}}/
+  OPTIONAL
+)
+
+install(DIRECTORY
+  urdf
+  DESTINATION share/${{PROJECT_NAME}}/
+  OPTIONAL
+)
+
+install(DIRECTORY
+  worlds
+  DESTINATION share/${{PROJECT_NAME}}/
+  OPTIONAL
+)
+
+install(DIRECTORY
+  maps
+  DESTINATION share/${{PROJECT_NAME}}/
+  OPTIONAL
+)
+
+ament_package()
+"""
+    with open(pkg_dir / "CMakeLists.txt", "w") as f:
+        f.write(cmakelists)
+
+
+if __name__ == "__main__":
+    cli()
 
