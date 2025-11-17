@@ -346,3 +346,33 @@ def launch(robot_name, mode, slam):
         click.echo("\n❌ ROS2 not found. Make sure ROS2 is installed and sourced.")
 
 
+@cli.command()
+def list():
+    """List all configured robots"""
+    manager = ConfigManager()
+    robots = manager.list_configs()
+
+    if not robots:
+        click.echo("No robots configured yet.")
+        click.echo("\nGet started:")
+        click.echo("  altrus-cli init my_robot --base wheeled")
+        return
+
+    click.echo("\n🤖 Configured Robots:")
+    click.echo("=" * 60)
+
+    for robot_name in robots:
+        config = manager.load_config(robot_name)
+        if config:
+            cfg = config.config
+            click.echo(f"\n📦 {robot_name}")
+            click.echo(f"   Base: {cfg['base_type']}")
+            click.echo(f"   Dimensions: {cfg['dimensions']['length']}m × {cfg['dimensions']['width']}m")
+            click.echo(f"   Planner: {cfg['navigation'].get('planner','navfn')} (A*: {cfg['navigation'].get('use_astar', False)})")
+            click.echo(f"   Voice: {'✓' if cfg['multimodal']['voice']['enabled'] else '✗'}")
+            click.echo(f"   Gesture: {'✓' if cfg['multimodal']['gesture']['enabled'] else '✗'}")
+            sensors = [s for s, v in cfg["sensors"].items() if v["enabled"]]
+            click.echo(f"   Sensors: {', '.join(sensors)}")
+
+
+
