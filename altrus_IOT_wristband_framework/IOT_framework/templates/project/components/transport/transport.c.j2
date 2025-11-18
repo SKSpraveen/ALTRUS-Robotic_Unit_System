@@ -1,0 +1,12 @@
+#include <stdio.h>
+#include "transport.h"
+
+void transport_init(void)
+{
+    printf("Transport init: {{ transport | upper }}\n");
+}
+
+void transport_send(void)
+{
+    printf("Sending packet over {{ transport | upper }}\n");
+}

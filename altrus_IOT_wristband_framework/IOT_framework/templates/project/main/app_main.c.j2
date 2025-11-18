@@ -1,0 +1,22 @@
+#include <stdio.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_log.h"
+#include "config.h"
+#include "sensors.h"
+#include "transport.h"
+
+static const char *TAG = "wristband";
+
+void app_main(void)
+{
+    ESP_LOGI(TAG, "Starting wristband firmware");
+    sensors_init();
+    transport_init();
+
+    while (1) {
+        sensors_sample();
+        transport_send();
+        vTaskDelay(pdMS_TO_TICKS(1000 / CONFIG_SAMPLE_RATE_HZ));
+    }
+}

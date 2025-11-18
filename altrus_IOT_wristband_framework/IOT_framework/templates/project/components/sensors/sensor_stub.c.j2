@@ -1,0 +1,15 @@
+#include <stdio.h>
+#include "{{ sensor.key }}.h"
+
+void {{ sensor.key }}_init(void)
+{
+    printf("Init {{ sensor.display_name }} on {{ sensor.bus }} bus\n");
+    {% for pin, value in sensor.pins.items() %}
+    printf("  {{ pin | upper }} pin: {{ value }}\n");
+    {% endfor %}
+}
+
+void {{ sensor.key }}_sample(void)
+{
+    printf("Sample {{ sensor.display_name }} at {{ sensor.sample_rate_hz }} Hz\n");
+}

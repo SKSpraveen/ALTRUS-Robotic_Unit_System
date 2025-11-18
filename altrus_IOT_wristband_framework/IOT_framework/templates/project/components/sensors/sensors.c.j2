@@ -1,0 +1,28 @@
+#include <stdio.h>
+#include "sensors.h"
+
+{% for sensor in sensors %}
+#include "{{ sensor.key }}.h"
+{% endfor %}
+
+void sensors_init(void)
+{
+    {% if sensors | length == 0 %}
+    printf("No sensors selected.\n");
+    {% else %}
+    {% for sensor in sensors %}
+    {{ sensor.key }}_init();
+    {% endfor %}
+    {% endif %}
+}
+
+void sensors_sample(void)
+{
+    {% if sensors | length == 0 %}
+    printf("No sensor data to sample.\n");
+    {% else %}
+    {% for sensor in sensors %}
+    {{ sensor.key }}_sample();
+    {% endfor %}
+    {% endif %}
+}

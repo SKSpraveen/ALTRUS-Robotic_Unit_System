@@ -1,0 +1,9 @@
+set(SENSOR_SOURCES
+    sensors.c
+    {% for sensor in sensors %}
+    "{{ sensor.key }}.c"
+    {% endfor %}
+)
+
+idf_component_register(SRCS ${SENSOR_SOURCES}
+                    INCLUDE_DIRS ".")

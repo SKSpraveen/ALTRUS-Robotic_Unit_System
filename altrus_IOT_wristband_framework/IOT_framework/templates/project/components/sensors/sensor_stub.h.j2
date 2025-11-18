@@ -1,0 +1,9 @@
+#pragma once
+
+#define {{ sensor.key | upper }}_SAMPLE_RATE_HZ {{ sensor.sample_rate_hz }}
+{% for pin, value in sensor.pins.items() -%}
+#define {{ sensor.key | upper }}_PIN_{{ pin | upper }} {{ value }}
+{% endfor %}
+
+void {{ sensor.key }}_init(void);
+void {{ sensor.key }}_sample(void);
